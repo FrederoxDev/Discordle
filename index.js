@@ -42,7 +42,7 @@ function getEmojiFromString(word) {
 
 function RestartGame(msg, type) {
     if (type == "win") msg.channel.send(msg.author.username + " guessed the word!");
-    else if (type == "loss") msg.channel.send(`Game Lost, the word was ${randomWord}!`)
+    else if (type == "loss") msg.channel.send(`Game Lost, the word was ${randomWord.toLocaleUpperCase()}!`)
 
     randomWordIndex = Math.floor(Math.random() * possibleWords.length);
     randomWord = possibleWords[randomWordIndex];
