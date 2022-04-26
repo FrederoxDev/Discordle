@@ -1,80 +1,123 @@
-import { words, possibleWords } from "./words.js"
-import { emojis } from "./emojis.js"
 import Discord from "discord.js";
+import { generateHtml } from "./html.js";
+import nodeHtmlToImage from "node-html-to-image";
+import { words, possibleWords } from "./words.js"
+import Sharp from "sharp";
 
-var randomWordIndex = Math.floor(Math.random() * possibleWords.length);
-var randomWord = possibleWords[randomWordIndex];
-var totalGuesses = 0;
-
-var previousGuesses = "";
-
-function isPossibleWord(guess) {
-    if (guess.length != 5) return false;
-    if (possibleWords.includes(guess)) return true;
-    if (words.includes(guess)) return true;
-    return false;
-}
-
-function generateResults(guess) {
-    var guessArray = guess.split("");
-    var correctArray = randomWord.split("");
-
-    var output = "";
-
-    for (var i = 0; i < 5; i++) {
-        // Check for green letters
-        if (guessArray[i] == correctArray[i]) output += getEmojiFromString("green" + guessArray[i]);
-
-        // Check for yellow letters
-        else if (correctArray.includes(guessArray[i])) output += getEmojiFromString("yellow" + guessArray[i])
-
-        // Check for grey letters
-        else output += getEmojiFromString("grey" + guessArray[i])
-    }
-
-    return output;
-}
-
-function getEmojiFromString(word) {
-    var emojiId = emojis.find(emoji => emoji.name == word).id;
-    return `<:${word}:${emojiId}>`
-}
-
-function RestartGame(msg, type) {
-    if (type == "win") msg.channel.send(msg.author.username + " guessed the word!");
-    else if (type == "loss") msg.channel.send(`Game Lost, the word was ${randomWord.toLocaleUpperCase()}!`)
-
-    randomWordIndex = Math.floor(Math.random() * possibleWords.length);
-    randomWord = possibleWords[randomWordIndex];
-    previousGuesses = "";
-    totalGuesses = 0;
-}
-
-// Discord
-
+const channelID = "950439990154911774";
 const client = new Discord.Client();
 
-client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}!`);
-  });
-  
-  client.on('message', msg => {
-    if (msg.author.bot) return;
-    if (msg.channel.id != "950439990154911774") return;
+function GetRandomWord() {
+    var randomWordIndex = Math.floor(Math.random() * possibleWords.length);
+    return possibleWords[randomWordIndex];
+}
 
-    var message = msg.content.toLocaleLowerCase().trim();
+var games = [];
+const message = ["Genius","Magnificent","Impressive","Splendid","Great","Phew"]
+const colors = ["#49e327", "#9be327", "#c4e327", "#e3ba27", "#e36c27", "#e34027"]
 
-    if (isPossibleWord(message)) {
-        previousGuesses += generateResults(message) + "\n"
-        totalGuesses += 1
-        
-        var embed = new Discord.RichEmbed().setTitle(totalGuesses + "/6 Guesses").setDescription(previousGuesses);
-        msg.channel.send(embed);
-        
-        if (msg.content.toLocaleLowerCase() == randomWord) RestartGame(msg, "win");
-        else if (totalGuesses >= 6) RestartGame(msg, "loss")
+class Game {
+  constructor(playerID, correctWord) {
+    this.playerID = playerID;
+    this.correctWord = correctWord;
+    this.previousWordData = [];
+    this.guessNum = 0;
+  }
+
+  makeGuess(guess) {
+    var data = this.generateWordData(guess);
+    this.previousWordData.push(data);
+    this.guessNum++;
+
+    return this.previousWordData;
+  }
+
+  generateWordData(guess) {
+    var wordData = [];
+
+    for (var i = 0; i < 5; i++) {
+      if (guess[i] == this.correctWord[i]) wordData[i] = { letter: guess[i], color: "green" };
+      else if (this.correctWord.includes(guess[i])) wordData[i] = { letter: guess[i], color: "yellow" };
+      else wordData[i] = { letter: guess[i], color: "grey" };
 
     }
+    return wordData;
+  }
+
+  isCorrect(guess) {
+    return guess == this.correctWord;
+  }
+
+  reset() {
+    this.correctWord = GetRandomWord();
+    this.previousWordData = [];
+    this.guessNum = 0;
+  }
+}
+
+client.on("ready", () => {
+  console.log(`Logged in as ${client.user.tag}!`);
 });
+
+client.on("message", async function (msg) {
+  if (msg.author.bot) return;
+  if (msg.channel.id != channelID) return;
+
+  // Find the game in existing games
+  var game = games.find((game) => game.playerID == msg.author.id);
+
+  // If the game doesnt exist yet
+  if (game == null) {
+    // Create a new game for the user
+    const newGame = new Game(msg.author.id, GetRandomWord());
+    games.push(newGame);
+
+    game = games.find((game) => game.playerID == msg.author.id);
+  }
+
+  const guess = msg.content.toLocaleLowerCase();
+  if (guess.length != 5) return
+  if (guess.replace(/[a-z]/g, "").length != 0) return; 
+
+  // Create the image of the game board
+  const image = await nodeHtmlToImage({ html: generateHtml(game.makeGuess(guess))})
+
+  const compressed = Sharp(image)
+    .resize(275, 330, {fit: "cover"})
+    .png({ compressionLevel: 9, quality: 15 })
+    .toBuffer()
+
+  const attachment = new Discord.Attachment(await compressed);
+
+  if (game.isCorrect(guess)) {
+    // Correct!
+
+    var embed = new Discord.RichEmbed()
+        .attachFile(attachment)
+        .setTitle(`**Discordle ${game.guessNum} / 6**`)
+        .setAuthor(msg.author.username, msg.author.avatarURL)
+        .setDescription(message[game.guessNum - 1])
+        .setColor(colors[game.guessNum - 1])
+
+    msg.channel.send(embed);
+    game.reset();
+  }
+
+  else {
+    var embed = new Discord.RichEmbed()
+        .attachFile(attachment)
+        .setTitle(`**Discordle ${game.guessNum} / 6**`)
+        .setAuthor(msg.author.username, msg.author.avatarURL)
+        .setColor(colors[game.guessNum - 1])
+        .setTimestamp(new Date())
+
+    if (game.guessNum == 6) embed.setDescription(`The word was ${game.correctWord}`)
+
+    msg.channel.send(embed);
+
+    if (game.guessNum == 6) game.reset();
+  }
   
-client.login(process.env.TOKEN);
+});
+
+client.login("OTUwNDM2ODc0MzQ0ODc0MDE2.YiY5UQ.Z3rI6abVCgRFwCU6zHB5LZcIu6o");
