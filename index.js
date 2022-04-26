@@ -120,4 +120,4 @@ client.on("message", async function (msg) {
   
 });
 
-client.login("OTUwNDM2ODc0MzQ0ODc0MDE2.YiY5UQ.Z3rI6abVCgRFwCU6zHB5LZcIu6o");
+client.login(process.env.TOKEN);
